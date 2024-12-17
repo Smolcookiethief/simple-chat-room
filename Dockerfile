@@ -16,5 +16,5 @@ COPY . .
 # Expose the port your app will be running on
 EXPOSE 3000
 
-# Start the application (this will run server.js in the same directory)
-CMD ["npm", "start"]
+# Start the application (run server.js directly)
+CMD ["node", "server.js"]

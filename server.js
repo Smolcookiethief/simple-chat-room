@@ -1,4 +1,3 @@
-// Import required modules
 const express = require('express');
 const http = require('http');
 const socketIo = require('socket.io');
@@ -6,13 +5,13 @@ const fs = require('fs');
 const path = require('path');
 const multer = require('multer'); // For handling file uploads
 
-// Set up storage configuration for multer to save uploaded files to the 'uploads' folder
+// For storing uploaded files
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
-    cb(null, 'uploads/'); // Save files in the 'uploads' folder
+    cb(null, 'uploads/');
   },
   filename: (req, file, cb) => {
-    cb(null, Date.now() + path.extname(file.originalname)); // Use timestamp for unique file names
+    cb(null, Date.now() + path.extname(file.originalname));
   }
 });
 
@@ -22,29 +21,30 @@ const app = express();
 const server = http.createServer(app);
 const io = socketIo(server);
 
-// Serve static files from the 'public' and 'uploads' folders
+let activeUsers = 0; // Track active users
+let messagesSent = 0; // Track messages sent
+
 app.use(express.static('public'));
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
-// Set up WebSocket communication
+// Real-time communication with socket.io
 io.on('connection', (socket) => {
-  console.log('A user connected');
+  activeUsers++;
+  io.emit('update stats', { activeUsers, messagesSent }); // Update active users and messages sent stats
 
   // Listen for chat messages from clients
   socket.on('chat message', (data) => {
-    // Emit the message to all connected clients
+    messagesSent++;
     io.emit('chat message', data);
   });
 
-  // Handle file upload
+  // Handle file uploads
   socket.on('file message', (fileData) => {
-    // Generate a unique filename to prevent overwriting
     const uniqueFileName = Date.now() + '-' + fileData.fileName;
     const filePath = path.join(__dirname, 'uploads', uniqueFileName);
-    const buffer = Buffer.from(fileData.file, 'base64'); // Convert base64 string to buffer
-    fs.writeFileSync(filePath, buffer); // Save the file
+    const buffer = Buffer.from(fileData.file, 'base64');
+    fs.writeFileSync(filePath, buffer);
 
-    // Emit file information (URL to access the file)
     io.emit('file message', {
       user: fileData.user,
       fileUrl: `/uploads/${uniqueFileName}`,
@@ -52,19 +52,19 @@ io.on('connection', (socket) => {
     });
   });
 
-  // Listen for typing indicator events
+  // Typing indicator
   socket.on('typing', (user) => {
     socket.broadcast.emit('typing', user);
   });
 
-  // Stop typing indicator when user stops typing
   socket.on('stop typing', (user) => {
     socket.broadcast.emit('stop typing', user);
   });
 
   // Handle user disconnect
   socket.on('disconnect', () => {
-    console.log('A user disconnected');
+    activeUsers--;
+    io.emit('update stats', { activeUsers, messagesSent });
   });
 });
 
