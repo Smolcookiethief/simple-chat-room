@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Cookies Chat Room</title>
+  <style>
+    /* Main container styling */
+    #chat-ui {
+      max-width: 800px;
+      margin: 0 auto;
+      padding: 20px;
+      border-radius: 8px;
+      background-color: #f9f9f9;
+      box-shadow: 0 0 15px rgba(0, 0, 0, 0.1);
+    }
+
+    h2 {
+      text-align: center;
+      font-size: 24px;
+    }
+
+    ul#messages {
+      list-style-type: none;
+      padding: 0;
+      margin: 20px 0;
+      max-height: 400px;
+      overflow-y: auto;
+      background-color: #fff;
+      border-radius: 8px;
+      box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+    }
+
+    li {
+      padding: 10px;
+      margin: 5px;
+      border-bottom: 1px solid #ddd;
+      display: flex;
+      align-items: center;
+    }
+
+    .user-avatar {
+      border-radius: 50%;
+      width: 40px;
+      height: 40px;
+      margin-right: 10px;
+    }
+
+    .message-reactions {
+      display: flex;
+      gap: 10px;
+      margin-left: auto;
+    }
+
+    .reaction-btn {
+      background: none;
+      border: none;
+      cursor: pointer;
+      font-size: 18px;
+    }
+
+    /* Dark mode styles */
+    body.dark-mode {
+      background-color: #333;
+      color: #fff;
+    }
+
+    body.dark-mode #chat-ui {
+      background-color: #444;
+      color: #fff;
+    }
+
+    body.dark-mode input,
+    body.dark-mode textarea,
+    body.dark-mode button {
+      background-color: #555;
+      color: #fff;
+      border-color: #777;
+    }
+
+    body.dark-mode #messages {
+      background-color: #333;
+    }
+
+    #dark-mode-toggle {
+      padding: 10px;
+      margin-bottom: 20px;
+      background-color: #333;
+      color: white;
+      border: none;
+      cursor: pointer;
+    }
+
+    #dark-mode-toggle:hover {
+      background-color: #555;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Chat UI with dark mode and search -->
+  <div id="chat-ui">
+    <h2>Cookies Chat Room</h2>
+
+    <!-- Dark Mode Toggle -->
+    <button id="dark-mode-toggle">Toggle Dark Mode</button>
+
+    <!-- Message Search -->
+    <input id="search" placeholder="Search messages" />
+
+    <!-- Username & Avatar Setup -->
+    <input id="username" placeholder="Enter your username" />
+    <input type="file" id="avatar-upload" />
+    <textarea id="status" placeholder="Enter your status message"></textarea>
+
+    <!-- Room Input -->
+    <input id="room" placeholder="Enter Room Name" />
+
+    <!-- Display messages -->
+    <ul id="messages"></ul>
+
+    <!-- Message input box -->
+    <input id="m" autocomplete="off" placeholder="Type your message here..." />
+
+    <!-- File input -->
+    <input type="file" id="fileInput" />
+
+    <!-- Send File Button -->
+    <button id="send-file-btn">Send File</button>
+
+    <div id="typing-indicator"></div>
+  </div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script>
+    const socket = io();
+    let username = 'Anonymous';
+    let room = '';
+    let avatar = '';
+    let status = '';
+    let typingTimeout;
+
+    // Handle dark mode toggle
+    document.getElementById('dark-mode-toggle').addEventListener('click', () => {
+      document.body.classList.toggle('dark-mode');
+    });
+
+    // Handle username input
+    document.getElementById('username').addEventListener('input', function() {
+      username = this.value.trim() || 'Anonymous';
+    });
+
+    // Handle avatar upload
+    document.getElementById('avatar-upload').addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if (file) {
+        const reader = new FileReader();
+        reader.onload = function(event) {
+          avatar = event.target.result;
+        };
+        reader.readAsDataURL(file);
+      }
+    });
+
+    // Handle status input
+    document.getElementById('status').addEventListener('input', function() {
+      status = this.value.trim();
+    });
+
+    // Join room when "Enter" is pressed
+    document.getElementById('room').addEventListener('keypress', function(e) {
+      if (e.key === 'Enter' && this.value.trim() !== '') {
+        room = this.value.trim();
+        socket.emit('join room', room);
+        this.value = ''; // Clear room input field
+      }
+    });
+
+    // Search functionality
+    document.getElementById('search').addEventListener('input', (e) => {
+      const searchQuery = e.target.value.toLowerCase();
+      const messages = document.getElementById('messages').children;
+      for (let i = 0; i < messages.length; i++) {
+        const message = messages[i].textContent.toLowerCase();
+        if (message.includes(searchQuery)) {
+          messages[i].style.backgroundColor = 'yellow';
+        } else {
+          messages[i].style.backgroundColor = '';
+        }
+      }
+    });
+
+    // Send message when "Enter" is pressed
+    document.getElementById('m').addEventListener('keypress', function(e) {
+      if (e.key === 'Enter' && this.value.trim() !== '') {
+        const message = `${username}: ${sanitizeInput(this.value)}`;
+        socket.emit('chat message', { msg: message, user: username, avatar, status });
+        this.value = ''; // Clear input field
+      }
+    });
+
+    // Handle file upload
+    document.getElementById('send-file-btn').addEventListener('click', () => {
+      const fileInput = document.getElementById('fileInput');
+      const file = fileInput.files[0];
+      if (file) {
+        const reader = new FileReader();
+        reader.onload = function (event) {
+          const fileData = {
+            user: username,
+            file: event.target.result.split(',')[1], // Remove the data URL part (base64 data)
+            fileName: file.name
+          };
+          socket.emit('file message', fileData);
+        };
+        reader.readAsDataURL(file); // Read the file as a data URL (base64)
+      }
+    });
+
+    // Listen for new messages and display them
+    socket.on('chat message', function(data) {
+      const time = new Date().toLocaleTimeString();
+      const li = document.createElement('li');
+      li.innerHTML = `<img src="${data.avatar}" class="user-avatar" /> ${data.user} (${data.status}) [${time}] ${data.msg}`;
+      document.getElementById('messages').appendChild(li);
+      document.getElementById('messages').scrollTop = document.getElementById('messages').scrollHeight;
+    });
+
+    // Handle file message display
+    socket.on('file message', function(data) {
+      const li = document.createElement('li');
+      li.innerHTML = `<img src="${data.avatar}" class="user-avatar" /> ${data.user} <a href="${data.fileUrl}" download>${data.fileName}</a>`;
+      document.getElementById('messages').appendChild(li);
+    });
+
+    // Typing indicator
+    document.getElementById('m').addEventListener('input', () => {
+      socket.emit('typing', username);
+      clearTimeout(typingTimeout);
+      typingTimeout = setTimeout(() => {
+        socket.emit('stop typing', username);
+      }, 1000);
+    });
+
+    // Simple input sanitization (prevent XSS)
+    function sanitizeInput(input) {
+      return input.replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    }
+  </script>
+</body>
+</html>
